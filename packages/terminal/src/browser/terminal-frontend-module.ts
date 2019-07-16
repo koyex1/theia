@@ -52,9 +52,9 @@ export default new ContainerModule(bind => {
             const child = new Container({ defaultScope: 'Singleton' });
             child.parent = ctx.container;
             const counter = terminalNum++;
-            const domId = options.id || 'terminal-' + counter;
+            const domId = 'terminal-' + counter;
             const widgetOptions: TerminalWidgetOptions = {
-                title: 'Terminal ' + counter,
+                title: domId,
                 useServerTitle: true,
                 destroyTermOnClose: true,
                 ...options
