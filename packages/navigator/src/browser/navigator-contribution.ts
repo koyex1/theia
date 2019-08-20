@@ -18,7 +18,7 @@ import { injectable, inject, postConstruct } from 'inversify';
 import { AbstractViewContribution } from '@theia/core/lib/browser/shell/view-contribution';
 import {
     Navigatable, SelectableTreeNode, Widget, KeybindingRegistry, CommonCommands,
-    OpenerService, FrontendApplicationContribution, FrontendApplication, CompositeTreeNode
+    OpenerService, FrontendApplicationContribution, FrontendApplication, CompositeTreeNode, PreferenceScope
 } from '@theia/core/lib/browser';
 import { FileDownloadCommands } from '@theia/filesystem/lib/browser/download/file-download-command-contribution';
 import { CommandRegistry, MenuModelRegistry, MenuPath, isOSX, Command, DisposableCollection } from '@theia/core/lib/common';
@@ -30,10 +30,12 @@ import { NavigatorKeybindingContexts } from './navigator-keybinding-context';
 import { FileNavigatorFilter } from './navigator-filter';
 import { WorkspaceNode } from './navigator-tree';
 import { NavigatorContextKeyService } from './navigator-context-key-service';
-import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+import { TabBarToolbarContribution, TabBarToolbarRegistry, TabBarToolbarItem } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { FileSystemCommands } from '@theia/filesystem/lib/browser/filesystem-frontend-contribution';
 import { NavigatorDiff, NavigatorDiffCommands } from './navigator-diff';
 import { UriSelection } from '@theia/core/lib/common/selection';
+import { PreferenceService } from '@theia/core/lib/browser';
+import { Emitter } from '@theia/core';
 
 export namespace FileNavigatorCommands {
     export const REVEAL_IN_NAVIGATOR: Command = {
@@ -43,6 +45,12 @@ export namespace FileNavigatorCommands {
     export const TOGGLE_HIDDEN_FILES: Command = {
         id: 'navigator.toggle.hidden.files',
         label: 'Toggle Hidden Files'
+    };
+    export const TOGGLE_AUTO_REVEAL: Command = {
+        id: 'navigator.toggle.autoReveal',
+        category: 'File',
+        label: 'Toggle Auto Reveal',
+        iconClass: 'fa fa-exchange'
     };
     export const REFRESH_NAVIGATOR: Command = {
         id: 'navigator.refresh',
@@ -104,6 +112,9 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
     @inject(NavigatorDiff)
     protected readonly navigatorDiff: NavigatorDiff;
 
+    @inject(PreferenceService)
+    protected readonly preferenceService: PreferenceService;
+
     constructor(
         @inject(FileNavigatorPreferences) protected readonly fileNavigatorPreferences: FileNavigatorPreferences,
         @inject(OpenerService) protected readonly openerService: OpenerService,
@@ -161,6 +172,17 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
             },
             isEnabled: () => true,
             isVisible: () => true
+        });
+        registry.registerCommand(FileNavigatorCommands.TOGGLE_AUTO_REVEAL, {
+            execute: () => {
+                const autoReveal = !this.fileNavigatorPreferences['explorer.autoReveal'];
+                this.preferenceService.set('explorer.autoReveal', autoReveal, PreferenceScope.User);
+                if (autoReveal) {
+                    this.selectWidgetFileNode(this.shell.currentWidget);
+                }
+            },
+            isEnabled: widget => this.withWidget(widget, () => this.workspaceService.opened),
+            isVisible: widget => this.withWidget(widget, () => this.workspaceService.opened)
         });
         registry.registerCommand(FileNavigatorCommands.COLLAPSE_ALL, {
             execute: widget => this.withWidget(widget, () => this.collapseFileNavigatorTree()),
@@ -328,17 +350,34 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
     }
 
     async registerToolbarItems(toolbarRegistry: TabBarToolbarRegistry): Promise<void> {
+
+        const onDidChange = new Emitter<void>();
+        const autoRevealItem: TabBarToolbarItem = {
+            id: FileNavigatorCommands.TOGGLE_AUTO_REVEAL.id,
+            command: FileNavigatorCommands.TOGGLE_AUTO_REVEAL.id,
+            tooltip: 'Toggle Auto Reveal',
+            priority: 0,
+            icon: () => `fa fa-exchange${this.fileNavigatorPreferences['explorer.autoReveal'] ? '' : ' inActiveToggle'}`,
+            onDidChange: onDidChange.event
+        };
+        toolbarRegistry.registerItem(autoRevealItem);
+        this.fileNavigatorPreferences.onPreferenceChanged(e => {
+            if (e.preferenceName === 'explorer.autoReveal') {
+                onDidChange.fire(undefined);
+            }
+        });
+
         toolbarRegistry.registerItem({
             id: FileNavigatorCommands.REFRESH_NAVIGATOR.id,
             command: FileNavigatorCommands.REFRESH_NAVIGATOR.id,
             tooltip: 'Refresh Explorer',
-            priority: 0,
+            priority: 1,
         });
         toolbarRegistry.registerItem({
             id: FileNavigatorCommands.COLLAPSE_ALL.id,
             command: FileNavigatorCommands.COLLAPSE_ALL.id,
             tooltip: 'Collapse All',
-            priority: 1,
+            priority: 2,
         });
     }
 
@@ -362,7 +401,7 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
     }
 
     protected onCurrentWidgetChangedHandler(): void {
-        if (this.fileNavigatorPreferences['navigator.autoReveal']) {
+        if (this.fileNavigatorPreferences['explorer.autoReveal']) {
             this.selectWidgetFileNode(this.shell.currentWidget);
         }
     }
