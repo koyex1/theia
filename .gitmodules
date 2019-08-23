@@ -1,0 +1,3 @@
+[submodule "flutter_web"]
+	path = flutter_web
+	url = https://github.com/svenefftinge/flutter_web
